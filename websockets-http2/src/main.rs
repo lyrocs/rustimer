@@ -10,12 +10,30 @@ use axum::{
     routing::get,
     Router,
 };
+use serde::{Deserialize, Serialize};
+
 use axum_server::tls_rustls::RustlsConfig;
 use std::{net::SocketAddr, path::PathBuf};
 use tokio::sync::broadcast;
 use tokio::sync::{mpsc, oneshot};
 use tower_http::services::ServeDir;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
+use sqlx::{ConnectOptions, FromRow};
+
+#[derive(Debug, Serialize, FromRow, Clone)]
+pub struct Post {
+    pub id: i32,
+    pub title: String,
+    pub content: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreatePost {
+    pub title: String,
+    pub content: String,
+}
 
 #[derive(Debug)]
 enum Command {
@@ -27,6 +45,38 @@ enum Command {
 struct AppState {
     command_sender: mpsc::Sender<Command>,
     tx: broadcast::Sender<String>,
+    db: SqlitePool,
+}
+
+impl AppState {
+    pub async fn new(
+        command_sender: mpsc::Sender<Command>,
+        tx: broadcast::Sender<String>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let db_options = SqliteConnectOptions::new()
+            .filename("test.db")
+            .create_if_missing(true)
+            .disable_statement_logging()
+            .to_owned();
+
+        let pool = SqlitePoolOptions::new().connect_with(db_options).await?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS posts (
+                id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                content NOT NULL
+            );",
+        )
+        .execute(&pool)
+        .await?;
+
+        Ok(Self {
+            command_sender,
+            tx,
+            db: pool,
+        })
+    }
 }
 
 async fn worker_task(mut command_receiver: mpsc::Receiver<Command>) {
@@ -52,15 +102,11 @@ async fn worker_task(mut command_receiver: mpsc::Receiver<Command>) {
 #[tokio::main]
 async fn main() {
     let (command_sender, command_receiver) = mpsc::channel(32);
+    let (tx, _) = broadcast::channel(100);
 
     tokio::spawn(worker_task(command_receiver));
 
-    let (tx, _) = broadcast::channel(100);
-
-    let app_state = AppState {
-        command_sender,
-        tx: tx.clone(),
-    };
+    let app_state = AppState::new(command_sender, tx.clone()).await.unwrap();
 
     tracing_subscriber::registry()
         .with(
@@ -89,6 +135,7 @@ async fn main() {
         .route("/ping", any(ping_handler))
         .route("/increment", get(increment_handler))
         .route("/get_count", get(get_count_handler))
+        .route("/posts", get(get_posts).post(create_post))
         .with_state(app_state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
@@ -114,9 +161,6 @@ async fn get_count_handler(State(state): State<AppState>) -> (StatusCode, Json<u
     let command = Command::GetCount {
         respond_to: response_sender,
     };
-    let command = Command::GetCount {
-        respond_to: response_sender,
-    };
 
     state.command_sender.send(command).await.unwrap();
 
@@ -128,6 +172,34 @@ async fn get_count_handler(State(state): State<AppState>) -> (StatusCode, Json<u
 
 async fn ping_handler() -> &'static str {
     "pong"
+}
+
+async fn create_post(
+    State(state): State<AppState>,
+    Json(payload): Json<CreatePost>,
+) -> Result<Json<Post>, StatusCode> {
+    let post = sqlx::query_as::<_, Post>(
+        "INSERT INTO posts (title, content) VALUES (?, ?) RETURNING id, title, content",
+    )
+    .bind(payload.title)
+    .bind(payload.content)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(post))
+}
+
+async fn get_posts(State(state): State<AppState>) -> Result<Json<Vec<Post>>, StatusCode> {
+    let posts = sqlx::query_as::<_, Post>("SELECT id, title, content FROM posts")
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch posts: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    Ok(Json(posts))
 }
 
 async fn ws_handler(
