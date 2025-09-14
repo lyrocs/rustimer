@@ -12,6 +12,7 @@ mod enums;
 mod structs;
 use crate::api::count;
 use crate::api::post;
+use crate::api::race;
 mod websocket;
 use crate::structs::state::AppState;
 use crate::websocket::ws_handler;
@@ -60,6 +61,8 @@ async fn main() {
         .route("/ping", any(ping_handler))
         .route("/increment", get(count::increment_handler))
         .route("/get_count", get(count::get_count_handler))
+        .route("/start_race", get(race::start_race))
+        .route("/stop_race", get(race::stop_race))
         .route("/posts", get(post::get_posts).post(post::create_post))
         .with_state(app_state);
 

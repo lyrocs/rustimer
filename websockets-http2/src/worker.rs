@@ -90,15 +90,18 @@ fn send_and_read(
 
 fn read_peak(port: &mut Box<dyn SerialPort>) -> u32 {
     let data_to_send = [0x0D]; // 0E
-    let response_buffer = send_and_read(port, &data_to_send, false).unwrap();
+    match send_and_read(port, &data_to_send, false) {
+        Ok(response_buffer) => {
+            let _lap_id = response_buffer[0];
+            // ms_val is a 16 bit value
+            let _ms_val = (response_buffer[1] as u16 * 256 + response_buffer[2] as u16) as u32;
+            let rssi = response_buffer[3];
 
-    let _lap_id = response_buffer[0];
-    // ms_val is a 16 bit value
-    let _ms_val = (response_buffer[1] as u16 * 256 + response_buffer[2] as u16) as u32;
-    let rssi = response_buffer[3];
-
-    // println!("lap_id: {}, ms_val: {}, rssi: {}", lap_id, ms_val, rssi);
-    rssi as u32
+            // println!("lap_id: {}, ms_val: {}, rssi: {}", lap_id, ms_val, rssi);
+            rssi as u32
+        }
+        Err(_) => 0,
+    }
 }
 
 pub async fn worker_task(mut command_receiver: mpsc::Receiver<Command>, db_pool: SqlitePool) {
@@ -109,6 +112,7 @@ pub async fn worker_task(mut command_receiver: mpsc::Receiver<Command>, db_pool:
     let port = Arc::new(Mutex::new(open_port(port_name, baud_rate).unwrap()));
 
     let mut last_peak = 0;
+    let mut race_start_time = std::time::Instant::now();
     let mut last_peak_time = std::time::Instant::now();
     let threshold = 3;
     loop {
@@ -116,11 +120,6 @@ pub async fn worker_task(mut command_receiver: mpsc::Receiver<Command>, db_pool:
                 Some(command) = command_receiver.recv() => {
                 match command {
                     Command::Increment => {
-                        if !is_listening {
-                            is_listening = true;
-                        } else {
-                            is_listening = false;
-                        }
                         counter += 1;
                         println!("Worker: Counter incremented to {}", counter);
 
@@ -149,6 +148,13 @@ pub async fn worker_task(mut command_receiver: mpsc::Receiver<Command>, db_pool:
                         );
                         let _ = respond_to.send(counter);
                     }
+                    Command::StartRace { time } => {
+                        is_listening = true;
+                        race_start_time = time;
+                    }
+                    Command::StopRace => {
+                        is_listening = false;
+                    }
                 }
             },
             Ok(peak) = {
@@ -166,19 +172,21 @@ pub async fn worker_task(mut command_receiver: mpsc::Receiver<Command>, db_pool:
                 if peak < last_peak.saturating_sub(threshold) || peak > last_peak.saturating_add(threshold)
                 {
                     let duration = last_peak_time.elapsed().as_secs_f64();
+                    let start_time = race_start_time.elapsed().as_nanos();
                     // let now = Utc::now();
                     println!(
-                        "Peak: {} during {} seconds",
-                        last_peak, duration
+                        "Peak: {} during {} seconds, {} nanoseconds",
+                        last_peak, duration, start_time
                     );
                     last_peak = peak;
                     last_peak_time = std::time::Instant::now();
                 }
                 if last_peak_time.elapsed().as_secs_f64() > 1.0 {
                     let duration = last_peak_time.elapsed().as_secs_f64();
+                    let start_time = race_start_time.elapsed().as_nanos();
                     println!(
-                        "Peak: {} during {} seconds",
-                        last_peak, duration
+                        "Peak: {} during {} seconds, {} nanoseconds",
+                        last_peak, duration, start_time
                     );
                     last_peak_time = std::time::Instant::now();
                 }
