@@ -80,18 +80,17 @@ pub async fn worker_task(mut command_receiver: mpsc::Receiver<Command>, db_pool:
                 if peak < last_peak.saturating_sub(threshold) || peak > last_peak.saturating_add(threshold)
                 {
                     let duration = last_peak_time.elapsed().as_secs_f64();
-                    let start_time = race_start_time.elapsed().as_micros();
+                    let start_time = race_start_time.elapsed().as_secs_f64() - duration;
                     // let now = Utc::now();
                     println!(
                         "Peak: {} during {} seconds, {} nanoseconds",
                         last_peak, duration, start_time
                     );
-                    last_peak = peak;
-                    last_peak_time = std::time::Instant::now();
-                    let bytes = start_time.to_be_bytes();
+
+                    // let bytes = start_time.to_be_bytes();
                     let new_node = CreateNode {
-                        peak,
-                        time: bytes.to_vec(),
+                        peak: last_peak,
+                        time: start_time,
                         duration,
                         race_id: current_race_id,
                     };
@@ -105,16 +104,19 @@ pub async fn worker_task(mut command_receiver: mpsc::Receiver<Command>, db_pool:
                     .bind(new_node.race_id)
                     .fetch_one(&db_pool)
                     .await;
-                }
-                if last_peak_time.elapsed().as_secs_f64() > 1.0 {
-                    let duration = last_peak_time.elapsed().as_secs_f64();
-                    let start_time = race_start_time.elapsed().as_nanos();
-                    println!(
-                        "Peak: {} during {} seconds, {} nanoseconds",
-                        last_peak, duration, start_time
-                    );
+
+                    last_peak = peak;
                     last_peak_time = std::time::Instant::now();
                 }
+                // if last_peak_time.elapsed().as_secs_f64() > 1.0 {
+                //     let duration = last_peak_time.elapsed().as_secs_f64();
+                //     let start_time = race_start_time.elapsed().as_nanos();
+                //     println!(
+                //         "Peak: {} during {} seconds, {} nanoseconds",
+                //         last_peak, duration, start_time
+                //     );
+                //     last_peak_time = std::time::Instant::now();
+                // }
 
             }
         }

@@ -44,7 +44,7 @@ pub async fn debug(State(state): State<AppState>) -> Json<Vec<crate::structs::no
             .map(|node| crate::structs::node::NodeJson {
                 id: node.id,
                 peak: node.peak,
-                time: u128::from_be_bytes(node.time.try_into().unwrap()),
+                time: node.time,
                 duration: node.duration,
                 race_id: node.race_id,
             })

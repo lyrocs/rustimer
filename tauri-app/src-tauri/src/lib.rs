@@ -5,7 +5,7 @@ use tauri_plugin_http::reqwest;
 struct Rssi {
     id: i32,
     peak: i32,
-    time: i64,
+    time: f64,
     duration: f64,
     race_id: i32,
 }

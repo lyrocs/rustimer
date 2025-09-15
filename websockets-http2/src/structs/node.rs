@@ -5,7 +5,7 @@ use sqlx::FromRow;
 pub struct Node {
     pub id: i32,
     pub peak: u32,
-    pub time: Vec<u8>,
+    pub time: f64,
     pub duration: f64,
     pub race_id: i32,
 }
@@ -13,7 +13,7 @@ pub struct Node {
 #[derive(Debug, Deserialize)]
 pub struct CreateNode {
     pub peak: u32,
-    pub time: Vec<u8>,
+    pub time: f64,
     pub duration: f64,
     pub race_id: i32,
 }
@@ -22,7 +22,7 @@ pub struct CreateNode {
 pub struct NodeJson {
     pub id: i32,
     pub peak: u32,
-    pub time: u128,
+    pub time: f64,
     pub duration: f64,
     pub race_id: i32,
 }

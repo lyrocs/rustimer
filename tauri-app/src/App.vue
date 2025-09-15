@@ -76,11 +76,11 @@ async function getRSSI() {
   const data = await invoke("get_rssi", {});
   const formatedData = data.reduce((acc, point) => {
     acc.push({
-      x: point.time / 1000000, // Conversion des microsecondes en secondes
+      x: point.time, // Conversion des microsecondes en secondes
       y: point.peak
     })
     acc.push({
-      x: point.time / 1000000 + point.duration, // Conversion des microsecondes en secondes
+      x: point.time + point.duration, // Conversion des microsecondes en secondes
       y: point.peak
     })
     return acc
