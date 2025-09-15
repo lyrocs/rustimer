@@ -9,6 +9,7 @@ mod worker;
 use crate::worker::worker_task;
 mod api;
 mod enums;
+mod node;
 mod structs;
 use crate::api::count;
 use crate::api::post;

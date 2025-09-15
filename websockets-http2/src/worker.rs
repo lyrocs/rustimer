@@ -1,115 +1,19 @@
 use crate::enums::command::Command;
-use serialport::{self, SerialPort};
 use sqlx::sqlite::SqlitePool;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task;
 
+use crate::node;
 use crate::structs::post::CreatePost;
 use crate::structs::post::Post;
-
-fn open_port(
-    port_name: &str,
-    baud_rate: u32,
-) -> Result<Box<dyn SerialPort>, Box<dyn std::error::Error>> {
-    let mut port = serialport::new(port_name, baud_rate)
-        .dtr_on_open(true)
-        .timeout(Duration::from_millis(5000)) // Increased to 5 seconds
-        .data_bits(serialport::DataBits::Eight)
-        .flow_control(serialport::FlowControl::None)
-        .parity(serialport::Parity::None)
-        .stop_bits(serialport::StopBits::One)
-        .open()?;
-
-    let mut discard_buffer = [0u8; 256];
-    while let Ok(bytes_read) = port.read(&mut discard_buffer) {
-        if bytes_read == 0 {
-            break;
-        }
-        println!("Cleared {} bytes from input buffer", bytes_read);
-    }
-
-    println!("Arduino should be ready now");
-    Ok(port)
-}
-
-fn send_and_read(
-    port: &mut Box<dyn SerialPort>,
-    data_to_send: &[u8],
-    debug: bool,
-) -> Result<[u8; 256], Box<dyn std::error::Error>> {
-    let mut response_buffer: [u8; 256] = [0u8; 256];
-    let mut total_bytes_read = 0;
-    port.write(&data_to_send)?;
-    port.flush()?; // Ensure data is actually sent
-
-    match port.read(&mut response_buffer[total_bytes_read..]) {
-        Ok(bytes_read) => {
-            if bytes_read > 0 {
-                total_bytes_read += bytes_read;
-
-                if debug {
-                    println!("Received {} bytes in this attempt", bytes_read);
-
-                    print!("Hex: ");
-                    for i in 0..total_bytes_read {
-                        print!("0x{:02X} ", response_buffer[i]);
-                    }
-                    println!();
-
-                    print!("ASCII: ");
-                    for i in 0..total_bytes_read {
-                        let byte = response_buffer[i];
-                        if byte >= 32 && byte <= 126 {
-                            print!("{}", byte as char);
-                        } else {
-                            print!(".");
-                        }
-                    }
-                    println!();
-                }
-                // Check if there might be more data coming
-                // std::thread::sleep(Duration::from_millis(100));
-                return Ok(response_buffer);
-            } else {
-                println!("No data in this attempt");
-                return Err("No data received".into());
-            }
-        }
-        Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {
-            println!("Timeout");
-            return Err("Read timeout".into());
-        }
-        Err(e) => {
-            println!("Error reading response: {}", e);
-            return Err(e.into());
-        }
-    }
-}
-
-fn read_peak(port: &mut Box<dyn SerialPort>) -> u32 {
-    let data_to_send = [0x0D]; // 0E
-    match send_and_read(port, &data_to_send, false) {
-        Ok(response_buffer) => {
-            let _lap_id = response_buffer[0];
-            // ms_val is a 16 bit value
-            let _ms_val = (response_buffer[1] as u16 * 256 + response_buffer[2] as u16) as u32;
-            let rssi = response_buffer[3];
-
-            // println!("lap_id: {}, ms_val: {}, rssi: {}", lap_id, ms_val, rssi);
-            rssi as u32
-        }
-        Err(_) => 0,
-    }
-}
 
 pub async fn worker_task(mut command_receiver: mpsc::Receiver<Command>, db_pool: SqlitePool) {
     let mut counter: u32 = 0;
     let mut is_listening = false;
     let port_name = "/dev/cu.usbserial-11230";
     let baud_rate = 115200;
-    let port = Arc::new(Mutex::new(open_port(port_name, baud_rate).unwrap()));
+    let port = Arc::new(Mutex::new(node::open_port(port_name, baud_rate).unwrap()));
 
     let mut last_peak = 0;
     let mut race_start_time = std::time::Instant::now();
@@ -161,7 +65,7 @@ pub async fn worker_task(mut command_receiver: mpsc::Receiver<Command>, db_pool:
                 let port_clone = Arc::clone(&port);
                 task::spawn_blocking(move || {
                     let mut port_guard = port_clone.lock().unwrap();
-                    read_peak(&mut *port_guard)
+                    node::read_peak(&mut *port_guard)
                 })
             }, if is_listening => {
                 // let peak = peak_result.unwrap();
