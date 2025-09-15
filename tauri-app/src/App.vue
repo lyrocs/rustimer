@@ -11,6 +11,7 @@ import {
   LinearScale,
   PointElement,
   LineElement,
+  ChartOptions,
 } from 'chart.js'
 import annotationPlugin from 'chartjs-plugin-annotation';
 
@@ -27,36 +28,53 @@ ChartJS.register(
   Legend,
   annotationPlugin
 )
+
+interface RssiPoint {
+  id: number;
+  peak: number;
+  time: number;
+  duration: number;
+  race_id: number;
+}
+
 const passHigh = ref(90)
 const passLow = ref(80)
-const rssi = ref([]);
+const laps = ref<{ time: number }[]>([]);
+const rssi = ref<RssiPoint[]>([]);
+const dataVersion = ref(0);
 const rawData = ref([
-  { time: 5009119, peak: 23 },
-  { time: 11018658, peak: 45 },
-  { time: 17028187, peak: 67 },
-  { time: 23037716, peak: 12 },
-  { time: 29047245, peak: 32 },
+  { time: 1.23332, peak: 23 },
+  { time: 1.5435435, peak: 45 },
+  { time: 3.435345, peak: 67 },
+  { time: 4.23332, peak: 12 },
+  { time: 5.23332, peak: 32 },
 ]);
 
 const chartData = computed(() => rawData.value.map(point => ({
-  x: point.time / 1000000, // Conversion des microsecondes en secondes
+  x: point.time, // Conversion des microsecondes en secondes
   y: point.peak
 })));
 
 
-const chartSetup = ref({
-  datasets: [{
-    label: 'Data One',
-    backgroundColor: '#24c8db',
-    borderColor: '#24c8db',
-    data: chartData,
-  }]
-});
+const chartDatasets = computed(() => [{
+  label: 'Data One',
+  backgroundColor: '#24c8db',
+  borderColor: '#24c8db',
+  borderWidth: 2,
+  pointRadius: 0,
+  tension: 0.1,
+  data: chartData.value,
+}]);
 
-const options = ref({
+const chartSetup = computed(() => ({
+  datasets: chartDatasets.value
+}));
+
+
+const options = computed((): ChartOptions<'line'> => ({
   scales: {
     x: {
-      type: 'linear', // Axe X numérique
+      type: 'linear' as const, // Axe X numérique
       title: {
         display: true,
         text: 'Temps (en secondes depuis le début)'
@@ -74,52 +92,112 @@ const options = ref({
     annotation: {
       annotations: {
         line1: {
-          type: 'line',
+          type: 'line' as const,
           yMin: passHigh.value,
           yMax: passHigh.value,
           borderColor: 'rgb(255, 99, 132)',
           borderWidth: 2,
         },
         line2: {
-          type: 'line',
+          type: 'line' as const,
           yMin: passLow.value,
           yMax: passLow.value,
           borderColor: 'rgb(255, 99, 132)',
           borderWidth: 2,
-        }
+        },
+        ...Object.fromEntries(laps.value.map((lap, index) => [
+          `lap-${index}`,
+          {
+            type: 'line' as const,
+            xMin: lap.time,
+            xMax: lap.time,
+            borderColor: 'rgb(54, 162, 235)',
+            borderWidth: 2,
+            label: {
+              content: `Lap ${index + 1}`,
+              display: true,
+            },
+          }
+        ]))
       }
     }
   }
-})
+}))
 
 const greetMsg = ref("");
 const name = ref("");
 
 async function getRSSI() {
   console.log("getRSSI");
-  const data = await invoke("get_rssi", {});
-  rssi.value = data.reduce((acc, point) => {
-    acc.push({
-      x: point.time, // Conversion des microsecondes en secondes
-      y: point.peak
-    })
-    acc.push({
-      x: point.time + point.duration, // Conversion des microsecondes en secondes
-      y: point.peak
-    })
-    return acc
-  }, [] as { x: number, y: number }[])
-  chartSetup.value = {
-    datasets: [{
-      label: 'Data One',
-      backgroundColor: '#24c8db',
-      borderColor: '#24c8db',
-      borderWidth: 2,
-      pointRadius: 0,
-      data: rssi.value,
-      tension: 0.1
-    }]
+  rssi.value = await invoke("get_rssi", {});
+  rawData.value = rssi.value.flatMap(point => [
+    { time: point.time, peak: point.peak },
+    { time: point.time + point.duration, peak: point.peak }
+  ]);
+  dataVersion.value++;
+
+  computeLap()
+}
+
+
+
+function computeLap() {
+  const tempLaps: { time: number }[] = [];
+  if (rssi.value.length === 0) {
+    laps.value = tempLaps;
+    return;
   }
+
+  let state = 'BELOW_LOW'; // Possible states: BELOW_LOW, ABOVE_LOW, IN_LAP
+  let startTime = 0;
+  let lapConfirmed = false;
+
+  // Sort rssi data by time to ensure chronological processing
+  const sortedRssi = [...rssi.value].sort((a, b) => a.time - b.time);
+
+  for (const point of sortedRssi) {
+    const currentTime = point.time;
+    const currentPeak = point.peak;
+
+    switch (state) {
+      case 'BELOW_LOW':
+        if (currentPeak > passLow.value) {
+          state = 'ABOVE_LOW';
+          startTime = currentTime;
+          if (currentPeak > passHigh.value) {
+            state = 'IN_LAP';
+            lapConfirmed = true;
+          }
+        }
+        break;
+
+      case 'ABOVE_LOW':
+        if (currentPeak > passHigh.value) {
+          state = 'IN_LAP';
+          lapConfirmed = true;
+        } else if (currentPeak <= passLow.value) {
+          state = 'BELOW_LOW';
+          // Reset if it drops below low without confirming a lap
+          lapConfirmed = false;
+        }
+        break;
+
+      case 'IN_LAP':
+        if (currentPeak <= passLow.value) {
+          if (lapConfirmed) {
+            const endTime = currentTime;
+            const lapTime = startTime + (endTime - startTime) / 2;
+            tempLaps.push({ time: lapTime });
+          }
+          state = 'BELOW_LOW';
+          lapConfirmed = false;
+        }
+        break;
+    }
+  }
+
+  laps.value = tempLaps;
+  console.log('laps = ', tempLaps);
 }
 
 
@@ -133,7 +211,10 @@ async function greet() {
 <template>
   <main class="container">
     <h1>Welcome to Tauri + Vue</h1>
-    <Line :data="chartSetup" :options="options" />
+    <Line :data="chartSetup" :options="options" :key="dataVersion" />
+    <ul v-if="laps">
+      <li v-for="lap in laps" :key="lap.time">{{ lap.time }}</li>
+    </ul>
     <button @click="getRSSI">Get RSSI</button>
     <div class="row">
       <a href="https://vite.dev" target="_blank">
