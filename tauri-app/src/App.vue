@@ -12,6 +12,8 @@ import {
   PointElement,
   LineElement,
 } from 'chart.js'
+import annotationPlugin from 'chartjs-plugin-annotation';
+
 import { Line } from 'vue-chartjs'
 
 // ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
@@ -22,9 +24,11 @@ ChartJS.register(
   LineElement,
   Title,
   Tooltip,
-  Legend
+  Legend,
+  annotationPlugin
 )
-
+const passHigh = ref(90)
+const passLow = ref(80)
 const rssi = ref([]);
 const rawData = ref([
   { time: 5009119, peak: 23 },
@@ -65,6 +69,26 @@ const options = ref({
       },
       beginAtZero: true
     }
+  },
+  plugins: {
+    annotation: {
+      annotations: {
+        line1: {
+          type: 'line',
+          yMin: passHigh.value,
+          yMax: passHigh.value,
+          borderColor: 'rgb(255, 99, 132)',
+          borderWidth: 2,
+        },
+        line2: {
+          type: 'line',
+          yMin: passLow.value,
+          yMax: passLow.value,
+          borderColor: 'rgb(255, 99, 132)',
+          borderWidth: 2,
+        }
+      }
+    }
   }
 })
 
@@ -74,7 +98,7 @@ const name = ref("");
 async function getRSSI() {
   console.log("getRSSI");
   const data = await invoke("get_rssi", {});
-  const formatedData = data.reduce((acc, point) => {
+  rssi.value = data.reduce((acc, point) => {
     acc.push({
       x: point.time, // Conversion des microsecondes en secondes
       y: point.peak
@@ -92,13 +116,13 @@ async function getRSSI() {
       borderColor: '#24c8db',
       borderWidth: 2,
       pointRadius: 0,
-      data: formatedData,
+      data: rssi.value,
       tension: 0.1
     }]
   }
-
-
 }
+
+
 
 async function greet() {
   // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
