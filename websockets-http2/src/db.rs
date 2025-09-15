@@ -21,5 +21,28 @@ pub async fn init_db() -> Result<SqlitePool, sqlx::Error> {
     .execute(&pool)
     .await?;
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS race (
+                id INTEGER PRIMARY KEY,
+                start_time TEXT NOT NULL,
+                end_time TEXT NULL
+            );",
+    )
+    .execute(&pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS node (
+                id INTEGER PRIMARY KEY,
+                peak INTEGER NOT NULL,
+                time BLOB NOT NULL,
+                duration INTEGER NOT NULL,
+                race_id INTEGER NOT NULL,
+                FOREIGN KEY (race_id) REFERENCES race (id)
+            );",
+    )
+    .execute(&pool)
+    .await?;
+
     Ok(pool)
 }

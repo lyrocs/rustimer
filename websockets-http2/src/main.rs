@@ -64,6 +64,7 @@ async fn main() {
         .route("/get_count", get(count::get_count_handler))
         .route("/start_race", get(race::start_race))
         .route("/stop_race", get(race::stop_race))
+        .route("/debug", get(race::debug))
         .route("/posts", get(post::get_posts).post(post::create_post))
         .with_state(app_state);
 

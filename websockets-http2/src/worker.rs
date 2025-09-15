@@ -5,6 +5,8 @@ use tokio::sync::mpsc;
 use tokio::task;
 
 use crate::node;
+use crate::structs::node::CreateNode;
+use crate::structs::node::Node;
 use crate::structs::post::CreatePost;
 use crate::structs::post::Post;
 
@@ -16,6 +18,7 @@ pub async fn worker_task(mut command_receiver: mpsc::Receiver<Command>, db_pool:
     let port = Arc::new(Mutex::new(node::open_port(port_name, baud_rate).unwrap()));
 
     let mut last_peak = 0;
+    let mut current_race_id = 0;
     let mut race_start_time = std::time::Instant::now();
     let mut last_peak_time = std::time::Instant::now();
     let threshold = 3;
@@ -52,9 +55,10 @@ pub async fn worker_task(mut command_receiver: mpsc::Receiver<Command>, db_pool:
                         );
                         let _ = respond_to.send(counter);
                     }
-                    Command::StartRace { time } => {
+                    Command::StartRace { time, race_id } => {
                         is_listening = true;
                         race_start_time = time;
+                        current_race_id = race_id;
                     }
                     Command::StopRace => {
                         is_listening = false;
@@ -76,7 +80,7 @@ pub async fn worker_task(mut command_receiver: mpsc::Receiver<Command>, db_pool:
                 if peak < last_peak.saturating_sub(threshold) || peak > last_peak.saturating_add(threshold)
                 {
                     let duration = last_peak_time.elapsed().as_secs_f64();
-                    let start_time = race_start_time.elapsed().as_nanos();
+                    let start_time = race_start_time.elapsed().as_micros();
                     // let now = Utc::now();
                     println!(
                         "Peak: {} during {} seconds, {} nanoseconds",
@@ -84,6 +88,23 @@ pub async fn worker_task(mut command_receiver: mpsc::Receiver<Command>, db_pool:
                     );
                     last_peak = peak;
                     last_peak_time = std::time::Instant::now();
+                    let bytes = start_time.to_be_bytes();
+                    let new_node = CreateNode {
+                        peak,
+                        time: bytes.to_vec(),
+                        duration,
+                        race_id: current_race_id,
+                    };
+
+                    let node = sqlx::query_as::<_, Node>(
+                        "INSERT INTO node (peak, time, duration, race_id) VALUES (?, ?, ?, ?) RETURNING id, peak, time, duration, race_id",
+                    )
+                    .bind(new_node.peak)
+                    .bind(new_node.time)
+                    .bind(new_node.duration)
+                    .bind(new_node.race_id)
+                    .fetch_one(&db_pool)
+                    .await;
                 }
                 if last_peak_time.elapsed().as_secs_f64() > 1.0 {
                     let duration = last_peak_time.elapsed().as_secs_f64();

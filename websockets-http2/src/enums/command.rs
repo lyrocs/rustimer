@@ -5,6 +5,6 @@ use tokio::sync::oneshot;
 pub enum Command {
     Increment,
     GetCount { respond_to: oneshot::Sender<u32> },
-    StartRace { time: Instant },
+    StartRace { time: Instant, race_id: i32 },
     StopRace,
 }
