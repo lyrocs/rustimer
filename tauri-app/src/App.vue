@@ -197,7 +197,6 @@ function computeLap() {
   }
 
   laps.value = tempLaps;
-  console.log('laps = ', tempLaps);
 }
 
 

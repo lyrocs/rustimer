@@ -26,8 +26,6 @@ async fn greet(name: &str) -> Result<String, String> {
         .text()
         .await
         .unwrap();
-    println!("{:?}", res);
-    // let res = res.json().await;
 
     Ok(format!("Hello, {}! You've been greeted from Rust!", res))
 }
@@ -48,8 +46,6 @@ async fn get_rssi() -> Result<Vec<Rssi>, String> {
         .json::<Vec<Rssi>>()
         .await
         .unwrap();
-
-    println!("{}", res.len());
 
     Ok(res)
 }
