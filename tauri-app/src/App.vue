@@ -1,9 +1,101 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import {
+  Chart as ChartJS,
+  Title,
+  Tooltip,
+  Legend,
+  BarElement,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+} from 'chart.js'
+import { Line } from 'vue-chartjs'
+
+// ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+)
+
+const rssi = ref([]);
+const rawData = ref([
+  { time: 5009119, peak: 23 },
+  { time: 11018658, peak: 45 },
+  { time: 17028187, peak: 67 },
+  { time: 23037716, peak: 12 },
+  { time: 29047245, peak: 32 },
+]);
+
+const chartData = computed(() => rawData.value.map(point => ({
+  x: point.time / 1000000, // Conversion des microsecondes en secondes
+  y: point.peak
+})));
+
+
+const chartSetup = ref({
+  datasets: [{
+    label: 'Data One',
+    backgroundColor: '#24c8db',
+    borderColor: '#24c8db',
+    data: chartData,
+  }]
+});
+
+const options = ref({
+  scales: {
+    x: {
+      type: 'linear', // Axe X numérique
+      title: {
+        display: true,
+        text: 'Temps (en secondes depuis le début)'
+      }
+    },
+    y: {
+      title: {
+        display: true,
+        text: 'RSSI'
+      },
+      beginAtZero: true
+    }
+  }
+})
 
 const greetMsg = ref("");
 const name = ref("");
+
+async function getRSSI() {
+  console.log("getRSSI");
+  const data = await invoke("get_rssi", {});
+  const formatedData = data.reduce((acc, point) => {
+    acc.push({
+      x: point.time / 1000000, // Conversion des microsecondes en secondes
+      y: point.peak
+    })
+    acc.push({
+      x: point.time / 1000000 + point.duration, // Conversion des microsecondes en secondes
+      y: point.peak
+    })
+    return acc
+  }, [] as { x: number, y: number }[])
+  chartSetup.value = {
+    datasets: [{
+      label: 'Data One',
+      backgroundColor: '#24c8db',
+      borderColor: '#24c8db',
+      data: formatedData,
+    }]
+  }
+
+
+}
 
 async function greet() {
   // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -14,7 +106,8 @@ async function greet() {
 <template>
   <main class="container">
     <h1>Welcome to Tauri + Vue</h1>
-
+    <Line :data="chartSetup" :options="options" />
+    <button @click="getRSSI">Get RSSI</button>
     <div class="row">
       <a href="https://vite.dev" target="_blank">
         <img src="/vite.svg" class="logo vite" alt="Vite logo" />
@@ -44,7 +137,6 @@ async function greet() {
 .logo.vue:hover {
   filter: drop-shadow(0 0 2em #249b73);
 }
-
 </style>
 <style>
 :root {
@@ -123,6 +215,7 @@ button {
 button:hover {
   border-color: #396cd8;
 }
+
 button:active {
   border-color: #396cd8;
   background-color: #e8e8e8;
@@ -152,9 +245,9 @@ button {
     color: #ffffff;
     background-color: #0f0f0f98;
   }
+
   button:active {
     background-color: #0f0f0f69;
   }
 }
-
 </style>
