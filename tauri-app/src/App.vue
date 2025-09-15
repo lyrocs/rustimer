@@ -90,7 +90,10 @@ async function getRSSI() {
       label: 'Data One',
       backgroundColor: '#24c8db',
       borderColor: '#24c8db',
+      borderWidth: 2,
+      pointRadius: 0,
       data: formatedData,
+      tension: 0.1
     }]
   }
 
