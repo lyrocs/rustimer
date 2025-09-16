@@ -40,6 +40,17 @@ interface RssiPoint {
 const passHigh = ref(90)
 const passLow = ref(80)
 const laps = ref<{ time: number }[]>([]);
+
+const lapSplits = computed(() => {
+  if (laps.value.length === 0) {
+    return [];
+  }
+  const splits = [laps.value[0].time];
+  for (let i = 1; i < laps.value.length; i++) {
+    splits.push(laps.value[i].time - laps.value[i - 1].time);
+  }
+  return splits;
+});
 const rssi = ref<RssiPoint[]>([]);
 const dataVersion = ref(0);
 const rawData = ref([
@@ -211,8 +222,10 @@ async function greet() {
   <main class="container">
     <h1>Welcome to Tauri + Vue</h1>
     <Line :data="chartSetup" :options="options" :key="dataVersion" />
-    <ul v-if="laps">
-      <li v-for="lap in laps" :key="lap.time">{{ lap.time }}</li>
+     <ul v-if="laps.length > 0">
+      <li v-for="(lap, index) in laps" :key="lap.time">
+        Lap {{ index + 1 }}: {{ lap.time.toFixed(3) }} (Split: {{ lapSplits[index].toFixed(3) }})
+      </li>
     </ul>
     <button @click="getRSSI">Get RSSI</button>
     <div class="row">

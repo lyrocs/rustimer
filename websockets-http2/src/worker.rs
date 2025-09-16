@@ -95,15 +95,21 @@ pub async fn worker_task(mut command_receiver: mpsc::Receiver<Command>, db_pool:
                         race_id: current_race_id,
                     };
 
-                    let node = sqlx::query_as::<_, Node>(
-                        "INSERT INTO node (peak, time, duration, race_id) VALUES (?, ?, ?, ?) RETURNING id, peak, time, duration, race_id",
-                    )
-                    .bind(new_node.peak)
-                    .bind(new_node.time)
-                    .bind(new_node.duration)
-                    .bind(new_node.race_id)
-                    .fetch_one(&db_pool)
-                    .await;
+                    let db_pool = db_pool.clone();
+                    tokio::spawn(async move {
+                        match sqlx::query_as::<_, Node>(
+                            "INSERT INTO node (peak, time, duration, race_id) VALUES (?, ?, ?, ?) RETURNING id, peak, time, duration, race_id",
+                        )
+                        .bind(new_node.peak)
+                        .bind(new_node.time)
+                        .bind(new_node.duration)
+                        .bind(new_node.race_id)
+                        .fetch_one(&db_pool)
+                        .await {
+                            Ok(node) => println!("Saved node: {:?}", node),
+                            Err(e) => eprintln!("Failed to save node: {}", e),
+                        }
+                    });
 
                     last_peak = peak;
                     last_peak_time = std::time::Instant::now();
